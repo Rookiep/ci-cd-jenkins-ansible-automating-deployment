@@ -14,7 +14,7 @@
           Status: READY FOR DEPLOYMENT
 
     - name: Verify Docker image exists
-      shell: docker images myapp:{{ image_tag }} --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+      shell: docker images myapp:{{ image_tag }}
       register: image_info
       changed_when: false
 
@@ -68,16 +68,6 @@
         mode: 0755
       delegate_to: localhost
 
-    - name: Create quick deployment command file
-      copy:
-        content: |
-          # Quick Deployment Command for myapp:{{ image_tag }}
-          # Copy and run this single command:
-          
-          minikube start --driver=docker && eval $(minikube docker-env) && docker build -t myapp:{{ image_tag }} . && kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000 && kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000 && echo "✅ Deployed! URL: $(minikube service myapp --url)"
-        dest: "/tmp/quick-deploy-{{ image_tag }}.txt"
-      delegate_to: localhost
-
     - name: Display final instructions
       debug:
         msg: |
@@ -94,7 +84,7 @@
              bash /tmp/deploy-myapp-{{ image_tag }}.sh
           
           2. Use quick command (copy and run):
-             minikube start --driver=docker && eval $(minikube docker-env) && docker build -t myapp:{{ image_tag }} . && kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000 && kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000 && echo "🌐 URL: $(minikube service myapp --url)"
+             minikube start --driver=docker && eval $(minikube docker-env) && docker build -t myapp:{{ image_tag }} . && kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000 && kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000 && echo "URL: $(minikube service myapp --url)"
           
           3. Manual steps:
              - minikube start --driver=docker
