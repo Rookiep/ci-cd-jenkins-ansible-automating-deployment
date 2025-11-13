@@ -1,77 +1,76 @@
 ---
-- name: Deploy application to Kubernetes
+- name: Deploy application to Minikube
   hosts: localhost
   vars:
     image_tag: "{{ image_tag | default('latest') }}"
   
   tasks:
-    - name: Check Kubernetes accessibility
-      shell: kubectl cluster-info 2>/dev/null && echo "accessible" || echo "not_accessible"
-      register: k8s_check
-      changed_when: false
-      ignore_errors: yes
-
-    - name: Create Kubernetes deployment manifest
-      copy:
-        content: |
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: myapp
-          spec:
-            replicas: 2
-            selector:
-              matchLabels:
-                app: myapp
-            template:
-              metadata:
-                labels:
-                  app: myapp
-              spec:
-                containers:
-                - name: myapp
-                  image: myapp:{{ image_tag }}
-                  ports:
-                  - containerPort: 5000
-        dest: "/tmp/deployment-{{ image_tag }}.yaml"
-      delegate_to: localhost
-
-    - name: Create Kubernetes service manifest
-      copy:
-        content: |
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: myapp-service
-          spec:
-            selector:
-              app: myapp
-            ports:
-            - protocol: TCP
-              port: 80
-              targetPort: 5000
-            type: LoadBalancer
-        dest: "/tmp/service-{{ image_tag }}.yaml"
-      delegate_to: localhost
-
-    - name: Apply Kubernetes manifests if accessible
+    - name: Create Kubernetes deployment
       shell: |
-        kubectl apply -f /tmp/deployment-{{ image_tag }}.yaml
-        kubectl apply -f /tmp/service-{{ image_tag }}.yaml
-      when: k8s_check.stdout == "accessible"
-      register: k8s_result
+        cat > /tmp/deployment.yaml << EOF
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: myapp
+        spec:
+          replicas: 2
+          selector:
+            matchLabels:
+              app: myapp
+          template:
+            metadata:
+              labels:
+                app: myapp
+            spec:
+              containers:
+              - name: myapp
+                image: myapp:{{ image_tag }}
+                ports:
+                - containerPort: 5000
+        EOF
+        
+        kubectl apply -f /tmp/deployment.yaml
+      args:
+        executable: /bin/bash
+      register: deploy_result
       ignore_errors: yes
 
-    - name: Display final status
+    - name: Create Kubernetes service
+      shell: |
+        cat > /tmp/service.yaml << EOF
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: myapp-service
+        spec:
+          selector:
+            app: myapp
+          ports:
+          - protocol: TCP
+            port: 80
+            targetPort: 5000
+          type: LoadBalancer
+        EOF
+        
+        kubectl apply -f /tmp/service.yaml
+      args:
+        executable: /bin/bash
+      register: service_result
+      ignore_errors: yes
+
+    - name: Display deployment status
       debug:
         msg: |
-          🎉 DEPLOYMENT COMPLETE
-          ======================
-          Docker Image: myapp:{{ image_tag }}
-          Kubernetes: {{ k8s_check.stdout }}
-          {% if k8s_check.stdout == "accessible" %}
-          ✅ Applied to Kubernetes successfully!
+          🚀 DEPLOYMENT STATUS
+          ===================
+          Image: myapp:{{ image_tag }}
+          Deployment: {{ deploy_result is failed and 'FAILED' or 'APPLIED' }}
+          Service: {{ service_result is failed and 'FAILED' or 'APPLIED' }}
+          
+          {% if not deploy_result is failed and not service_result is failed %}
+          ✅ Successfully deployed to Minikube!
+          💡 Check with: kubectl get pods && kubectl get services
           {% else %}
-          📋 Manifests ready in /tmp/ directory
-          💡 Apply manually: kubectl apply -f /tmp/
+          ⚠️  Deployment failed - Jenkins cannot access Minikube
+          💡 Deploy manually using the YAML files in /tmp/
           {% endif %}
