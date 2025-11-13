@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'myapp'
-        IMAGE_TAG = 'latest'
+        IMAGE_TAG = "${env.BUILD_ID}" // Using build ID for unique tags
     }
 
     stages {
@@ -16,8 +16,14 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Build Docker image and store reference
-                    env.IMAGE = docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                    // Check if Dockerfile exists
+                    def dockerfileExists = fileExists 'Dockerfile'
+                    if (!dockerfileExists) {
+                        error "Dockerfile not found in the repository"
+                    }
+                    
+                    // Build Docker image
+                    docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
                 }
             }
         }
@@ -25,9 +31,9 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    // Login and push image
-                    withDockerRegistry([credentialsId: 'dockerhub-credentials', url: '']) {
-                        env.IMAGE.push("${IMAGE_TAG}")
+                    // Login and push image (optional - remove if you don't want to push)
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-credentials') {
+                        docker.image("${IMAGE_NAME}:${IMAGE_TAG}").push()
                     }
                 }
             }
@@ -36,8 +42,12 @@ pipeline {
         stage('Deploy to Minikube') {
             steps {
                 script {
-                    // Run Ansible playbook
-                    ansiblePlaybook credentialsId: 'ssh-credentials', playbook: 'ansible/deploy.yaml'
+                    // Run Ansible playbook (make sure playbook exists and SSH credentials are set up)
+                    ansiblePlaybook(
+                        playbook: 'ansible/deploy.yaml',
+                        credentialsId: 'ssh-credentials',
+                        extras: "-e image_tag=${IMAGE_TAG}"
+                    )
                 }
             }
         }
@@ -45,7 +55,13 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline finished."
+            echo "Pipeline finished for build ${env.BUILD_ID}"
+        }
+        success {
+            echo "Pipeline completed successfully!"
+        }
+        failure {
+            echo "Pipeline failed. Check the logs above for details."
         }
     }
 }
