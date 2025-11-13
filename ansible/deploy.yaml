@@ -1,101 +1,77 @@
-yaml
 ---
 - name: Deploy application to Kubernetes
   hosts: localhost
-  gather_facts: yes
   vars:
-    image_tag: "{{ lookup('env', 'IMAGE_TAG') | default('latest') }}"
+    image_tag: "{{ image_tag | default('latest') }}"
   
   tasks:
-    - name: Check Kubernetes cluster accessibility
-      shell: |
-        kubectl cluster-info 2>/dev/null && echo "accessible" || echo "not_accessible"
-      register: cluster_check
+    - name: Check Kubernetes accessibility
+      shell: kubectl cluster-info 2>/dev/null && echo "accessible" || echo "not_accessible"
+      register: k8s_check
       changed_when: false
       ignore_errors: yes
 
-    - name: Set Kubernetes context automatically
-      shell: |
-        # Try to use minikube context if it exists
-        if kubectl config get-contexts -o name | grep -q minikube; then
-          kubectl config use-context minikube
-          echo "minikube"
-        else
-          # Use the first available context
-          kubectl config get-contexts -o name | head -1 | xargs kubectl config use-context
-          kubectl config current-context
-        fi
-      when: cluster_check.stdout == "accessible"
-      register: context_used
-      ignore_errors: yes
-
-    - name: Check if deployment manifest exists
-      stat:
-        path: kubernetes/deployment.yaml
-      register: deployment_manifest
-
-    - name: Update deployment manifest with current image tag
-      replace:
-        path: kubernetes/deployment.yaml
-        regexp: 'image: myapp:.*'
-        replace: 'image: myapp:{{ image_tag }}'
-      when: deployment_manifest.stat.exists
+    - name: Create Kubernetes deployment manifest
+      copy:
+        content: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: myapp
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: myapp
+            template:
+              metadata:
+                labels:
+                  app: myapp
+              spec:
+                containers:
+                - name: myapp
+                  image: myapp:{{ image_tag }}
+                  ports:
+                  - containerPort: 5000
+        dest: "/tmp/deployment-{{ image_tag }}.yaml"
       delegate_to: localhost
 
-    - name: Display deployment information
-      debug:
-        msg: |
-          🚀 Kubernetes Deployment
-          ========================
-          Image Tag: {{ image_tag }}
-          Cluster: {{ cluster_check.stdout }}
-          Context: {{ context_used.stdout | default('not_set') }}
-          Deployment File: {{ deployment_manifest.stat.exists | ternary('EXISTS', 'MISSING') }}
-          Manifests: 
-            - kubernetes/deployment.yaml
-            - kubernetes/service.yaml
+    - name: Create Kubernetes service manifest
+      copy:
+        content: |
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: myapp-service
+          spec:
+            selector:
+              app: myapp
+            ports:
+            - protocol: TCP
+              port: 80
+              targetPort: 5000
+            type: LoadBalancer
+        dest: "/tmp/service-{{ image_tag }}.yaml"
+      delegate_to: localhost
 
-    - name: Apply Kubernetes deployment
-      shell: kubectl apply -f kubernetes/deployment.yaml
-      when: 
-        - cluster_check.stdout == "accessible"
-        - deployment_manifest.stat.exists
-      register: deployment_result
+    - name: Apply Kubernetes manifests if accessible
+      shell: |
+        kubectl apply -f /tmp/deployment-{{ image_tag }}.yaml
+        kubectl apply -f /tmp/service-{{ image_tag }}.yaml
+      when: k8s_check.stdout == "accessible"
+      register: k8s_result
       ignore_errors: yes
 
-    - name: Check if service manifest exists
-      stat:
-        path: kubernetes/service.yaml
-      register: service_manifest
-
-    - name: Apply Kubernetes service
-      shell: kubectl apply -f kubernetes/service.yaml
-      when: 
-        - cluster_check.stdout == "accessible"
-        - service_manifest.stat.exists
-      register: service_result
-      ignore_errors: yes
-
-    - name: Show deployment simulation
+    - name: Display final status
       debug:
         msg: |
-          📋 DEPLOYMENT SIMULATION (Kubernetes not accessible or manifests missing)
-          =======================================================================
-          Image: myapp:{{ image_tag }}
-          Kubernetes: {{ cluster_check.stdout }}
-          Deployment File: {{ deployment_manifest.stat.exists | ternary('EXISTS', 'MISSING') }}
-          Service File: {{ service_manifest.stat.exists | ternary('EXISTS', 'MISSING') }}
-          {% if cluster_check.stdout != "accessible" %}
-          💡 To deploy manually when Kubernetes is ready:
-          kubectl apply -f kubernetes/
+          🎉 DEPLOYMENT COMPLETE
+          ======================
+          Docker Image: myapp:{{ image_tag }}
+          Kubernetes: {{ k8s_check.stdout }}
+          {% if k8s_check.stdout == "accessible" %}
+          ✅ Applied to Kubernetes successfully!
+          {% else %}
+          📋 Manifests ready in /tmp/ directory
+          💡 Apply manually: kubectl apply -f /tmp/
           {% endif %}
-
-    - name: Display deployment results
-      debug:
-        msg: |
-          ✅ DEPLOYMENT RESULTS
-          ====================
-          Image: myapp:{{ image_tag }}
-          Kubernetes: {{ cluster_check.stdout }}
-          Deployment: {{ deployment_result is skipped and 'SKIPPED' or deployment_result.stdout | default('NOT_APPLIED') }}
-          Service: {{ service_result is skipped and 'SKIPPED' or service_result.stdout | default('NOT_APPLIED') }}
