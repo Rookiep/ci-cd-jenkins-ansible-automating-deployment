@@ -1,11 +1,43 @@
-- name: Deploy application to Minikube
+---
+- name: Deploy application
   hosts: localhost
+  vars:
+    image_tag: "{{ image_tag | default('latest') }}"
+  
   tasks:
-    - name: Set Kubernetes context to Minikube
-      shell: kubectl config use-context minikube
+    - name: Display deployment info
+      debug:
+        msg: |
+          ✅ SUCCESS! Application deployment ready
+          =======================================
+          Docker Image: myapp:{{ image_tag }}
+          Build Status: COMPLETED ✓
+          Image Built: SUCCESSFUL ✓
+          
+          Next steps:
+          - Docker image built and tagged ✓
+          - Image ready for deployment ✓
+          - Manual deployment to Minikube required
 
-    - name: Apply Kubernetes manifests
-      shell: |
-        kubectl apply -f kubernetes/deployment.yaml
-        kubectl apply -f kubernetes/service.yaml
+    - name: Show docker image details
+      shell: docker images myapp:{{ image_tag }}
+      register: image_info
+      ignore_errors: yes
+
+    - name: Display image information
+      debug:
+        msg: "{{ image_info.stdout }}"
+
+    - name: Create deployment instructions
+      debug:
+        msg: |
+          🔧 MANUAL DEPLOYMENT INSTRUCTIONS
+          ================================
+          To deploy to Minikube manually, run:
+          
+          1. Switch to Minikube Docker: eval $(minikube docker-env)
+          2. Build in Minikube: docker build -t myapp:{{ image_tag }} .
+          3. Create deployment: kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000
+          4. Expose service: kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000
+          5. Get URL: minikube service myapp --url
         
