@@ -1,5 +1,4 @@
----
-- name: Complete CI/CD Pipeline Success
+- name: Complete CI/CD Pipeline with Minikube Deployment
   hosts: localhost
   vars:
     image_tag: "{{ image_tag | default('latest') }}"
@@ -24,7 +23,45 @@
           📦 DOCKER IMAGE DETAILS:
           {{ image_info.stdout }}
 
-    - name: Create Minikube deployment script
+    - name: Deploy to Minikube using complete command
+      shell: |
+        minikube start --driver=docker && \
+        eval $(minikube docker-env) && \
+        docker build -t myapp:{{ image_tag }} . && \
+        kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000 && \
+        kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000 && \
+        echo "URL: $(minikube service myapp --url)"
+      args:
+        executable: /bin/bash
+      register: deployment_result
+      ignore_errors: yes
+
+    - name: Get deployment status
+      shell: |
+        kubectl get pods,services,deployments 2>/dev/null || echo "Kubernetes resources not available"
+      register: k8s_status
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Display deployment results
+      debug:
+        msg: |
+          🎯 DEPLOYMENT RESULTS
+          ====================
+          
+          {% if deployment_result.rc == 0 %}
+          ✅ SUCCESS! Application deployed to Minikube!
+          {% if "URL:" in deployment_result.stdout %}
+          🌐 {{ deployment_result.stdout | regex_search('URL: .*') }}
+          {% endif %}
+          {% else %}
+          ⚠️  Deployment attempted - check Minikube access
+          {% endif %}
+          
+          📊 Kubernetes Status:
+          {{ k8s_status.stdout }}
+
+    - name: Create Minikube deployment script for future use
       copy:
         content: |
           #!/bin/bash
@@ -68,28 +105,26 @@
         mode: 0755
       delegate_to: localhost
 
-    - name: Display final instructions
+    - name: Display final summary
       debug:
         msg: |
-          🎯 DEPLOYMENT READY!
-          ===================
+          🏁 PIPELINE COMPLETE SUMMARY
+          ===========================
           
-          ✅ What's completed:
+          ✅ Completed:
           - Docker image built: myapp:{{ image_tag }} ✓
-          - Image verified and ready ✓
+          - Minikube deployment attempted ✓
+          - Deployment script created ✓
           
-          🔧 Deployment options:
+          {% if deployment_result.rc == 0 %}
+          🎉 Your application is now running on Minikube!
+          💡 Access it using the URL above
+          {% else %}
+          🔧 Manual deployment required:
+          Run: bash /tmp/deploy-myapp-{{ image_tag }}.sh
+          {% endif %}
           
-          1. Run automated script:
-             bash /tmp/deploy-myapp-{{ image_tag }}.sh
-          
-          2. Use quick command (copy and run):
-             minikube start --driver=docker && eval $(minikube docker-env) && docker build -t myapp:{{ image_tag }} . && kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000 && kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000 && echo "URL: $(minikube service myapp --url)"
-          
-          3. Manual steps:
-             - minikube start --driver=docker
-             - eval $(minikube docker-env)
-             - docker build -t myapp:{{ image_tag }} .
-             - kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000
-             - kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000
-             - minikube service myapp --url
+          📋 Verification commands:
+          - kubectl get pods
+          - kubectl get services  
+          - minikube service list
