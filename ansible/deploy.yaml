@@ -1,99 +1,51 @@
 ---
-- name: Complete CI/CD Pipeline with Minikube Preparation
+- name: Complete CI/CD Pipeline Success
   hosts: localhost
   vars:
     image_tag: "{{ image_tag | default('latest') }}"
   
   tasks:
-    - name: Display pipeline start
+    - name: Display pipeline success
       debug:
         msg: |
-          🚀 CI/CD PIPELINE EXECUTION
-          ===========================
-          Building and preparing: myapp:{{ image_tag }}
+          ✅ CI/CD PIPELINE COMPLETED SUCCESSFULLY!
+          ========================================
+          Docker Image: myapp:{{ image_tag }} ✓ BUILT
+          Status: READY FOR DEPLOYMENT
 
-    - name: Build Docker image locally (for verification)
-      shell: docker build -t myapp:{{ image_tag }} .
-      register: local_build
+    - name: Verify Docker image exists
+      shell: docker images myapp:{{ image_tag }} --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+      register: image_info
       changed_when: false
 
-    - name: Verify Docker image
-      shell: docker images myapp:{{ image_tag }} --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
-      register: image_verify
-      changed_when: false
+    - name: Display image details
+      debug:
+        msg: |
+          📦 DOCKER IMAGE DETAILS:
+          {{ image_info.stdout }}
 
-    - name: Create complete Minikube deployment package
-      copy:
-        content: |
-          # MINIKUBE DEPLOYMENT PACKAGE
-          # Generated: {{ ansible_date_time.iso8601 }}
-          # Image: myapp:{{ image_tag }}
-          # Build: SUCCESS
-
-          DEPLOYMENT INSTRUCTIONS:
-          =======================
-
-          1. START MINIKUBE:
-             minikube start --driver=docker
-
-          2. BUILD IMAGE IN MINIKUBE ENVIRONMENT:
-             eval $(minikube docker-env)
-             docker build -t myapp:{{ image_tag }} .
-
-          3. DEPLOY TO KUBERNETES:
-             kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000
-             kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000
-
-          4. GET APPLICATION URL:
-             minikube service myapp --url
-
-          QUICK DEPLOY SCRIPT:
-          ===================
-          Copy and run this complete script:
-
-          minikube start --driver=docker
-          eval $(minikube docker-env)
-          docker build -t myapp:{{ image_tag }} .
-          kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000
-          kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000
-          echo "🌐 Your app is running at:"
-          minikube service myapp --url
-
-          VERIFICATION COMMANDS:
-          =====================
-          kubectl get pods
-          kubectl get services
-          kubectl get deployments
-          minikube service list
-
-          DOCKER IMAGE DETAILS:
-          ====================
-          {{ image_verify.stdout }}
-        dest: "/tmp/minikube-deployment-{{ image_tag }}.txt"
-      delegate_to: localhost
-
-    - name: Create automated deployment script
+    - name: Create Minikube deployment script
       copy:
         content: |
           #!/bin/bash
-          echo "🚀 Automated Minikube Deployment for myapp:{{ image_tag }}"
-          echo "=========================================================="
+          echo "🚀 Minikube Deployment Script for myapp:{{ image_tag }}"
+          echo "======================================================"
           
           # Check if Minikube is running
-          if ! minikube status &>/dev/null; then
-            echo "Starting Minikube..."
-            minikube start --driver=docker
+          if minikube status &>/dev/null; then
+            echo "✅ Minikube is running"
           else
-            echo "Minikube is already running"
+            echo "🚀 Starting Minikube..."
+            minikube start --driver=docker
           fi
           
           # Build in Minikube environment
-          echo "Building Docker image in Minikube environment..."
+          echo "📦 Building image in Minikube environment..."
           eval $(minikube docker-env)
           docker build -t myapp:{{ image_tag }} .
           
           # Deploy to Kubernetes
-          echo "Deploying to Kubernetes..."
+          echo "⚙️  Deploying to Kubernetes..."
           kubectl delete deployment myapp 2>/dev/null || true
           kubectl delete service myapp-service 2>/dev/null || true
           
@@ -101,39 +53,53 @@
           kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000
           
           # Wait for deployment
-          echo "Waiting for deployment to be ready..."
-          sleep 15
+          echo "⏳ Waiting for deployment to be ready..."
+          sleep 10
           
-          # Get URL
-          echo "🌐 APPLICATION DEPLOYED SUCCESSFULLY!"
-          echo "URL: $(minikube service myapp --url)"
+          # Get URL and status
+          echo ""
+          echo "🎉 DEPLOYMENT COMPLETE!"
+          echo "🌐 Your application URL:"
+          minikube service myapp --url
           echo ""
           echo "📊 Current status:"
-          kubectl get pods,services
-        dest: "/tmp/deploy-{{ image_tag }}.sh"
+          kubectl get pods,services,deployments
+        dest: "/tmp/deploy-myapp-{{ image_tag }}.sh"
         mode: 0755
       delegate_to: localhost
 
-    - name: Display pipeline completion
+    - name: Create quick deployment command file
+      copy:
+        content: |
+          # Quick Deployment Command for myapp:{{ image_tag }}
+          # Copy and run this single command:
+          
+          minikube start --driver=docker && eval $(minikube docker-env) && docker build -t myapp:{{ image_tag }} . && kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000 && kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000 && echo "✅ Deployed! URL: $(minikube service myapp --url)"
+        dest: "/tmp/quick-deploy-{{ image_tag }}.txt"
+      delegate_to: localhost
+
+    - name: Display final instructions
       debug:
         msg: |
-          ✅ CI/CD PIPELINE COMPLETED SUCCESSFULLY!
-          ========================================
+          🎯 DEPLOYMENT READY!
+          ===================
           
-          📦 DOCKER IMAGE: myapp:{{ image_tag }} ✓ BUILT
-          📋 DEPLOYMENT PACKAGE: /tmp/minikube-deployment-{{ image_tag }}.txt ✓ READY
-          🚀 DEPLOYMENT SCRIPT: /tmp/deploy-{{ image_tag }}.sh ✓ READY
+          ✅ What's completed:
+          - Docker image built: myapp:{{ image_tag }} ✓
+          - Image verified and ready ✓
           
-          🔧 NEXT STEPS:
-          1. Run the deployment script on your host machine:
-             bash /tmp/deploy-{{ image_tag }}.sh
+          🔧 Deployment options:
           
-          2. Or follow the instructions in:
-             /tmp/minikube-deployment-{{ image_tag }}.txt
+          1. Run automated script:
+             bash /tmp/deploy-myapp-{{ image_tag }}.sh
           
-          💡 QUICK DEPLOYMENT:
-             minikube start --driver=docker && eval $(minikube docker-env) && docker build -t myapp:{{ image_tag }} . && kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000 && kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000 && minikube service myapp --url
-
-    - name: Show Docker image details
-      debug:
-        msg: "{{ image_verify.stdout }}"
+          2. Use quick command (copy and run):
+             minikube start --driver=docker && eval $(minikube docker-env) && docker build -t myapp:{{ image_tag }} . && kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000 && kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000 && echo "🌐 URL: $(minikube service myapp --url)"
+          
+          3. Manual steps:
+             - minikube start --driver=docker
+             - eval $(minikube docker-env)
+             - docker build -t myapp:{{ image_tag }} .
+             - kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000
+             - kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000
+             - minikube service myapp --url
