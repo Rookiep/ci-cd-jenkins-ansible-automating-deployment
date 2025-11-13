@@ -1,8 +1,20 @@
-- name: Deploy application to Minikube
+- name: Deploy application to Kubernetes
   hosts: localhost
   tasks:
-    - name: Set Kubernetes context to Minikube
-      shell: kubectl config use-context minikube
+    - name: Check if Minikube context exists
+      shell: kubectl config get-contexts -o name | grep minikube || echo "not-found"
+      register: context_check
+      changed_when: false
+
+    - name: Use current context if Minikube not found
+      shell: kubectl config current-context
+      when: context_check.stdout == "not-found"
+      register: current_context
+      changed_when: false
+
+    - name: Display context info
+      debug:
+        msg: "Using Kubernetes context: {{ current_context.stdout }}"
 
     - name: Apply Kubernetes manifests
       shell: |
