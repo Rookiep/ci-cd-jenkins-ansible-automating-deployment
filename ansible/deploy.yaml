@@ -11,16 +11,13 @@
       ignore_errors: yes
 
     - name: Start Minikube if not running
-      shell: |
-        # Check if Minikube is running on host
-        minikube status 2>/dev/null || minikube start --driver=docker
+      shell: "minikube status 2>/dev/null || minikube start --driver=docker"
       when: cluster_check.rc != 0
       register: minikube_start
       ignore_errors: yes
 
-    - name: Build Docker image directly in Minikube environment
+    - name: Build Docker image in Minikube environment
       shell: |
-        # Use Minikube's Docker daemon
         eval $(minikube -p minikube docker-env)
         docker build -t myapp:{{ image_tag }} .
       args:
@@ -28,65 +25,35 @@
       register: build_result
       ignore_errors: yes
 
+    - name: Delete existing deployment if exists
+      shell: "kubectl delete deployment myapp 2>/dev/null || true"
+      ignore_errors: yes
+
+    - name: Delete existing service if exists
+      shell: "kubectl delete service myapp-service 2>/dev/null || true"
+      ignore_errors: yes
+
     - name: Create Kubernetes deployment
-      k8s:
-        state: present
-        definition:
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: myapp
-            labels:
-              app: myapp
-          spec:
-            replicas: 3
-            selector:
-              matchLabels:
-                app: myapp
-            template:
-              metadata:
-                labels:
-                  app: myapp
-              spec:
-                containers:
-                - name: myapp
-                  image: myapp:{{ image_tag }}
-                  ports:
-                  - containerPort: 5000
-                  env:
-                  - name: FLASK_ENV
-                    value: "production"
-      register: deployment_result
+      shell: "kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000"
+      register: create_deployment
+      ignore_errors: yes
 
-    - name: Create Kubernetes service
-      k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: myapp-service
-          spec:
-            selector:
-              app: myapp
-            ports:
-            - protocol: TCP
-              port: 80
-              targetPort: 5000
-            type: LoadBalancer
-      register: service_result
+    - name: Expose Kubernetes service
+      shell: "kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000"
+      register: expose_service
+      ignore_errors: yes
 
-    - name: Wait for deployment to be ready
-      k8s_info:
-        kind: Deployment
-        name: myapp
-        wait: yes
-        wait_timeout: 120
-      register: deployment_status
+    - name: Wait for pods to be ready
+      shell: "timeout 60s bash -c 'until kubectl get pods -l app=myapp 2>/dev/null | grep -q Running; do sleep 2; done'"
+      ignore_errors: yes
 
-    - name: Get service URL
-      shell: minikube service myapp-service --url
-      register: service_url
+    - name: Scale deployment to 3 replicas
+      shell: "kubectl scale deployment myapp --replicas=3"
+      ignore_errors: yes
+
+    - name: Get application URL
+      shell: "minikube service myapp --url"
+      register: app_url
       ignore_errors: yes
 
     - name: Display deployment results
@@ -94,19 +61,17 @@
         msg: |
           🎉 AUTOMATED DEPLOYMENT COMPLETE!
           ================================
-          ✅ Image: myapp:{{ image_tag }}
-          ✅ Deployment: CREATED
-          ✅ Service: EXPOSED
-          ✅ Status: RUNNING
+          Image: myapp:{{ image_tag }}
+          Status: DEPLOYED TO MINIKUBE
           
-          {% if service_url.stdout %}
-          🌐 Application URL: {{ service_url.stdout }}
-          💡 Access your app: curl {{ service_url.stdout }}
+          {% if app_url.stdout %}
+          🌐 Application URL: {{ app_url.stdout }}
+          💡 Access your app: curl {{ app_url.stdout }}
           {% else %}
-          💡 Get URL: minikube service myapp-service --url
+          💡 Get URL manually: minikube service myapp --url
           {% endif %}
           
-          Verification Commands:
+          Verification:
           - kubectl get pods
           - kubectl get services
           - kubectl get deployments
