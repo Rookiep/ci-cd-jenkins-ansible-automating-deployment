@@ -1,89 +1,11 @@
----
 - name: Deploy application to Minikube
   hosts: localhost
-  vars:
-    image_tag: "{{ image_tag | default('latest') }}"
-  
   tasks:
-    - name: Check Minikube connection
-      shell: kubectl get nodes
-      register: k8s_check
-      ignore_errors: yes
+    - name: Set Kubernetes context to Minikube
+      shell: kubectl config use-context minikube
 
-    - name: Create Kubernetes deployment
+    - name: Apply Kubernetes manifests
       shell: |
-        cat > /tmp/deployment.yaml << EOF
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: myapp
-        spec:
-          replicas: 2
-          selector:
-            matchLabels:
-              app: myapp
-          template:
-            metadata:
-              labels:
-                app: myapp
-            spec:
-              containers:
-              - name: myapp
-                image: myapp:{{ image_tag }}
-                ports:
-                - containerPort: 5000
-        EOF
+        kubectl apply -f kubernetes/deployment.yaml
+        kubectl apply -f kubernetes/service.yaml
         
-        kubectl apply -f /tmp/deployment.yaml --validate=false
-      args:
-        executable: /bin/bash
-      when: k8s_check.rc == 0
-      register: deploy_result
-      ignore_errors: yes
-
-    - name: Create Kubernetes service
-      shell: |
-        cat > /tmp/service.yaml << EOF
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: myapp-service
-        spec:
-          selector:
-            app: myapp
-          ports:
-          - protocol: TCP
-            port: 80
-            targetPort: 5000
-          type: LoadBalancer
-        EOF
-        
-        kubectl apply -f /tmp/service.yaml --validate=false
-      args:
-        executable: /bin/bash
-      when: k8s_check.rc == 0
-      register: service_result
-      ignore_errors: yes
-
-    - name: Display deployment status
-      debug:
-        msg: |
-          🚀 DEPLOYMENT STATUS
-          ===================
-          Image: myapp:{{ image_tag }}
-          Minikube Access: {{ k8s_check.rc == 0 | ternary('✅ CONNECTED', '❌ NOT CONNECTED') }}
-          {% if k8s_check.rc == 0 %}
-          Deployment: {{ deploy_result is failed and 'FAILED' or 'APPLIED' }}
-          Service: {{ service_result is failed and 'FAILED' or 'APPLIED' }}
-          {% if not deploy_result is failed and not service_result is failed %}
-          ✅ Successfully deployed to Minikube!
-          💡 Check with: kubectl get pods && kubectl get services
-          {% endif %}
-          {% else %}
-          ⚠️  Jenkins cannot access Minikube
-          💡 Run manually: 
-             eval \$(minikube docker-env)
-             docker build -t myapp:{{ image_tag }} .
-             kubectl create deployment myapp --image=myapp:{{ image_tag }} --port=5000
-             kubectl expose deployment myapp --type=LoadBalancer --port=80 --target-port=5000
-          {% endif %}
