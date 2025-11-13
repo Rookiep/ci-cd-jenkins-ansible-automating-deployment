@@ -1,3 +1,4 @@
+yaml
 ---
 - name: Deploy application to Kubernetes
   hosts: localhost
@@ -28,11 +29,17 @@
       register: context_used
       ignore_errors: yes
 
+    - name: Check if deployment manifest exists
+      stat:
+        path: kubernetes/deployment.yaml
+      register: deployment_manifest
+
     - name: Update deployment manifest with current image tag
       replace:
         path: kubernetes/deployment.yaml
-        regex: 'image: myapp:.*'
+        regexp: 'image: myapp:.*'
         replace: 'image: myapp:{{ image_tag }}'
+      when: deployment_manifest.stat.exists
       delegate_to: localhost
 
     - name: Display deployment information
@@ -43,38 +50,52 @@
           Image Tag: {{ image_tag }}
           Cluster: {{ cluster_check.stdout }}
           Context: {{ context_used.stdout | default('not_set') }}
+          Deployment File: {{ deployment_manifest.stat.exists | ternary('EXISTS', 'MISSING') }}
           Manifests: 
             - kubernetes/deployment.yaml
             - kubernetes/service.yaml
 
     - name: Apply Kubernetes deployment
       shell: kubectl apply -f kubernetes/deployment.yaml
-      when: cluster_check.stdout == "accessible"
+      when: 
+        - cluster_check.stdout == "accessible"
+        - deployment_manifest.stat.exists
       register: deployment_result
       ignore_errors: yes
 
+    - name: Check if service manifest exists
+      stat:
+        path: kubernetes/service.yaml
+      register: service_manifest
+
     - name: Apply Kubernetes service
       shell: kubectl apply -f kubernetes/service.yaml
-      when: cluster_check.stdout == "accessible"
+      when: 
+        - cluster_check.stdout == "accessible"
+        - service_manifest.stat.exists
       register: service_result
       ignore_errors: yes
 
     - name: Show deployment simulation
       debug:
         msg: |
-          📋 DEPLOYMENT SIMULATION (Kubernetes not accessible)
-          ===================================================
-          Would apply:
-          - kubectl apply -f kubernetes/deployment.yaml
-          - kubectl apply -f kubernetes/service.yaml
-          With image: myapp:{{ image_tag }}
-      when: cluster_check.stdout != "accessible"
+          📋 DEPLOYMENT SIMULATION (Kubernetes not accessible or manifests missing)
+          =======================================================================
+          Image: myapp:{{ image_tag }}
+          Kubernetes: {{ cluster_check.stdout }}
+          Deployment File: {{ deployment_manifest.stat.exists | ternary('EXISTS', 'MISSING') }}
+          Service File: {{ service_manifest.stat.exists | ternary('EXISTS', 'MISSING') }}
+          {% if cluster_check.stdout != "accessible" %}
+          💡 To deploy manually when Kubernetes is ready:
+          kubectl apply -f kubernetes/
+          {% endif %}
 
     - name: Display deployment results
       debug:
         msg: |
           ✅ DEPLOYMENT RESULTS
           ====================
-          Deployment: {{ deployment_result is skipped and 'SIMULATED' or deployment_result.stdout }}
-          Service: {{ service_result is skipped and 'SIMULATED' or service_result.stdout }}
-          Status: {{ (cluster_check.stdout == "accessible") | ternary('APPLIED', 'SIMULATED') }}
+          Image: myapp:{{ image_tag }}
+          Kubernetes: {{ cluster_check.stdout }}
+          Deployment: {{ deployment_result is skipped and 'SKIPPED' or deployment_result.stdout | default('NOT_APPLIED') }}
+          Service: {{ service_result is skipped and 'SKIPPED' or service_result.stdout | default('NOT_APPLIED') }}
