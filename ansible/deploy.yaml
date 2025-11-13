@@ -1,0 +1,10 @@
+- name: Deploy application to Minikube
+  hosts: localhost
+  tasks:
+    - name: Set Kubernetes context to Minikube
+      shell: kubectl config use-context minikube
+
+    - name: Apply Kubernetes manifests
+      shell: |
+        kubectl apply -f kubernetes/deployment.yaml
+        kubectl apply -f kubernetes/service.yaml
