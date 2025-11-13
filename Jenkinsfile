@@ -1,30 +1,51 @@
 pipeline {
     agent any
 
+    environment {
+        IMAGE_NAME = 'myapp'
+        IMAGE_TAG = 'latest'
+    }
+
     stages {
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/Rookiep/ci-cd-jenkins-ansible-automating-deployment.git'
             }
         }
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    docker.build('myapp:latest')
+                    // Build Docker image and store reference
+                    env.IMAGE = docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
                 }
             }
         }
+
         stage('Push Docker Image') {
             steps {
-                withDockerRegistry([credentialsId: 'dockerhub-credentials', url: '']) {
-                    docker.image('myapp:latest').push('latest')
+                script {
+                    // Login and push image
+                    withDockerRegistry([credentialsId: 'dockerhub-credentials', url: '']) {
+                        env.IMAGE.push("${IMAGE_TAG}")
+                    }
                 }
             }
         }
+
         stage('Deploy to Minikube') {
             steps {
-                ansiblePlaybook credentialsId: 'ssh-credentials', playbook: 'ansible/deploy.yaml'
+                script {
+                    // Run Ansible playbook
+                    ansiblePlaybook credentialsId: 'ssh-credentials', playbook: 'ansible/deploy.yaml'
+                }
             }
+        }
+    }
+
+    post {
+        always {
+            echo "Pipeline finished."
         }
     }
 }
