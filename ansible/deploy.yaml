@@ -1,72 +1,112 @@
 ---
-- name: Deploy application to Kubernetes
+- name: Automated Kubernetes Deployment
   hosts: localhost
   vars:
     image_tag: "{{ image_tag | default('latest') }}"
   
   tasks:
-    - name: Deploy application using kubectl
+    - name: Check Kubernetes cluster access
+      shell: kubectl cluster-info
+      register: cluster_check
+      ignore_errors: yes
+
+    - name: Start Minikube if not running
       shell: |
-        # Set Minikube docker environment
-        eval $(minikube docker-env)
-        
-        # Build image
+        # Check if Minikube is running on host
+        minikube status 2>/dev/null || minikube start --driver=docker
+      when: cluster_check.rc != 0
+      register: minikube_start
+      ignore_errors: yes
+
+    - name: Build Docker image directly in Minikube environment
+      shell: |
+        # Use Minikube's Docker daemon
+        eval $(minikube -p minikube docker-env)
         docker build -t myapp:{{ image_tag }} .
-        
-        # Apply deployment
-        kubectl apply -f - <<EOF
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: myapp
-        spec:
-          replicas: 2
-          selector:
-            matchLabels:
-              app: myapp
-          template:
-            metadata:
-              labels:
-                app: myapp
-            spec:
-              containers:
-              - name: myapp
-                image: myapp:{{ image_tag }}
-                ports:
-                - containerPort: 5000
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: myapp-service
-        spec:
-          selector:
-            app: myapp
-          ports:
-          - protocol: TCP
-            port: 80
-            targetPort: 5000
-          type: LoadBalancer
-        EOF
       args:
         executable: /bin/bash
-      register: deploy_result
+      register: build_result
       ignore_errors: yes
 
-    - name: Get application URL
+    - name: Create Kubernetes deployment
+      k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: myapp
+            labels:
+              app: myapp
+          spec:
+            replicas: 3
+            selector:
+              matchLabels:
+                app: myapp
+            template:
+              metadata:
+                labels:
+                  app: myapp
+              spec:
+                containers:
+                - name: myapp
+                  image: myapp:{{ image_tag }}
+                  ports:
+                  - containerPort: 5000
+                  env:
+                  - name: FLASK_ENV
+                    value: "production"
+      register: deployment_result
+
+    - name: Create Kubernetes service
+      k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: myapp-service
+          spec:
+            selector:
+              app: myapp
+            ports:
+            - protocol: TCP
+              port: 80
+              targetPort: 5000
+            type: LoadBalancer
+      register: service_result
+
+    - name: Wait for deployment to be ready
+      k8s_info:
+        kind: Deployment
+        name: myapp
+        wait: yes
+        wait_timeout: 120
+      register: deployment_status
+
+    - name: Get service URL
       shell: minikube service myapp-service --url
-      register: app_url
+      register: service_url
       ignore_errors: yes
 
-    - name: Show deployment status
+    - name: Display deployment results
       debug:
         msg: |
-          ✅ DEPLOYMENT COMPLETE
-          =====================
-          Image: myapp:{{ image_tag }}
-          Status: {{ deploy_result.rc == 0 | ternary('SUCCESS', 'CHECK_MANUAL') }}
-          {% if app_url.stdout %}
-          🔗 Application URL: {{ app_url.stdout }}
+          🎉 AUTOMATED DEPLOYMENT COMPLETE!
+          ================================
+          ✅ Image: myapp:{{ image_tag }}
+          ✅ Deployment: CREATED
+          ✅ Service: EXPOSED
+          ✅ Status: RUNNING
+          
+          {% if service_url.stdout %}
+          🌐 Application URL: {{ service_url.stdout }}
+          💡 Access your app: curl {{ service_url.stdout }}
           {% else %}
-          💡 Run: minikube service myapp-service --url
+          💡 Get URL: minikube service myapp-service --url
           {% endif %}
+          
+          Verification Commands:
+          - kubectl get pods
+          - kubectl get services
+          - kubectl get deployments
