@@ -3,11 +3,14 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'myapp'
-        IMAGE_TAG = "${env.BUILD_ID}"
+        IMAGE_TAG = "${env.BUILD_ID}"     // Jenkins build number as tag
+        ANSIBLE_DIR = "ansible"
+        PLAYBOOK = "deploy.yaml"
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/Rookiep/ci-cd-jenkins-ansible-automating-deployment.git'
             }
@@ -16,23 +19,35 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Simple docker build using shell
-                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+                    echo "🏗 Building Docker Image → ${IMAGE_NAME}:${IMAGE_TAG}"
+                    sh """
+                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                    """
                 }
             }
         }
 
-        stage('Deploy to Minikube') {
+        stage('Run Ansible Deployment') {
             steps {
                 script {
-                    // Simple ansible using shell
-                    sh "ansible-playbook -i ansible/inventory ansible/deploy.yaml --extra-vars 'image_tag=${IMAGE_TAG}'"
+                    echo "🚀 Running Ansible Deployment"
+                    sh """
+                        cd ${ANSIBLE_DIR}
+                        ansible-playbook ${PLAYBOOK} --extra-vars "image_tag=${IMAGE_TAG}"
+                    """
                 }
             }
         }
+
     }
 
     post {
+        success {
+            echo "🎉 Deployment Completed Successfully!"
+        }
+        failure {
+            echo "❌ Deployment Failed!"
+        }
         always {
             echo "Pipeline finished."
         }
